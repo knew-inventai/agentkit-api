@@ -1,0 +1,10 @@
+name = "agentkit-api"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+workers_dev = true
+preview_urls = false
+
+[[d1_databases]]
+binding = "DB"
+database_name = "agentkit"
+database_id = "49dcca17-ff33-431e-926b-b84eee31839a"
