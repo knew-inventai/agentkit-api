@@ -22,8 +22,8 @@ const app = new Hono<{ Bindings: Bindings }>()
 app.use('/*', cors({
   origin: (origin) => {
     if (!origin) return null
-    // 允許 localhost（開發）與 github.io（生產）
-    if (origin.includes('localhost') || origin.includes('github.io')) return origin
+    // 允許 localhost / 區網 IP（本機開發）與 github.io（生產）
+    if (origin.includes('localhost') || origin.includes('192.168.') || origin.includes('github.io')) return origin
     return null
   },
   allowMethods: ['GET', 'POST', 'OPTIONS'],
