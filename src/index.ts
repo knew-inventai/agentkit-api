@@ -75,8 +75,8 @@ function buildUpsertStmt(
   return db.prepare(`
     INSERT OR REPLACE INTO packages
       (id, type, name, version, description, tags, compatible,
-       author_name, author_github, license, repo_path, synced_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+       author_name, author_github, license, repo_path, dependencies, synced_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
   `).bind(
     id,
     type,
@@ -89,6 +89,7 @@ function buildUpsertStmt(
     String(author?.github ?? '') || null,
     String(manifest.license ?? '') || null,
     `https://raw.githubusercontent.com/${org}/${repo}/main/${name}`,
+    JSON.stringify(Array.isArray(agentkit?.dependencies) ? agentkit.dependencies : []),
   )
 }
 
@@ -246,7 +247,7 @@ app.get('/packages', async (c) => {
     id: string; type: string; name: string; version: string; description: string
     tags: string; compatible: string; author_name: string; author_github: string | null
     license: string | null; repo_path: string; synced_at: string
-    downloads: number; likes: number; liked_by_me: number
+    downloads: number; likes: number; liked_by_me: number; dependencies: string
   }
 
   let countSql: string
@@ -266,7 +267,7 @@ app.get('/packages', async (c) => {
 
     listSql = `
       SELECT p.id, p.type, p.name, p.version, p.description, p.tags, p.compatible,
-        p.author_name, p.license, p.repo_path, p.synced_at,
+        p.author_name, p.license, p.repo_path, p.synced_at, p.dependencies,
         COALESCE(ps.downloads, 0) as downloads,
         (SELECT COUNT(*) FROM package_likes pl WHERE pl.package_id = p.id) as likes,
         ${likedByMeSql} as liked_by_me
@@ -286,7 +287,7 @@ app.get('/packages', async (c) => {
 
     listSql = `
       SELECT p.id, p.type, p.name, p.version, p.description, p.tags, p.compatible,
-        p.author_name, p.license, p.repo_path, p.synced_at,
+        p.author_name, p.license, p.repo_path, p.synced_at, p.dependencies,
         COALESCE(ps.downloads, 0) as downloads,
         (SELECT COUNT(*) FROM package_likes pl WHERE pl.package_id = p.id) as likes,
         ${likedByMeSql} as liked_by_me
@@ -321,9 +322,65 @@ app.get('/packages', async (c) => {
     downloads: row.downloads,
     likes: row.likes,
     liked_by_me: row.liked_by_me === 1,
+    dependencies: JSON.parse(row.dependencies) as string[],
   }))
 
   return c.json({ packages: pkgs, total, offset, limit })
+})
+
+// ─── GET /packages/:type/:name ───────────────────────────
+
+app.get('/packages/:type/:name', async (c) => {
+  const { type, name } = c.req.param()
+  const id = `${type}/${name}`
+
+  const authHeader = c.req.header('Authorization')
+  let username: string | null = null
+  if (authHeader?.startsWith('Bearer ')) {
+    username = await getGitHubUser(authHeader.slice(7))
+  }
+
+  type PackageSingleRow = {
+    id: string; type: string; name: string; version: string; description: string
+    tags: string; compatible: string; author_name: string; author_github: string | null
+    license: string | null; repo_path: string; synced_at: string
+    downloads: number; likes: number; liked_by_me: number; dependencies: string
+  }
+
+  const likedByMeSql = username
+    ? `CASE WHEN EXISTS(SELECT 1 FROM package_likes WHERE package_id = p.id AND github_user = ?) THEN 1 ELSE 0 END`
+    : `0`
+
+  const row = await c.env.DB.prepare(`
+    SELECT p.id, p.type, p.name, p.version, p.description, p.tags, p.compatible,
+      p.author_name, p.author_github, p.license, p.repo_path, p.synced_at, p.dependencies,
+      COALESCE(ps.downloads, 0) as downloads,
+      (SELECT COUNT(*) FROM package_likes pl WHERE pl.package_id = p.id) as likes,
+      ${likedByMeSql} as liked_by_me
+    FROM packages p
+    LEFT JOIN package_stats ps ON ps.package_id = p.id
+    WHERE p.id = ?
+  `).bind(...(username ? [username, id] : [id])).first<PackageSingleRow>()
+
+  if (!row) return c.json({ error: 'not found' }, 404)
+
+  return c.json({
+    id: row.id,
+    type: row.type,
+    name: row.name,
+    version: row.version,
+    description: row.description,
+    tags: JSON.parse(row.tags) as string[],
+    compatible: JSON.parse(row.compatible) as string[],
+    author: row.author_name,
+    license: row.license ?? '',
+    updatedAt: row.synced_at,
+    repoPath: row.repo_path,
+    downloads: row.downloads,
+    likes: row.likes,
+    liked_by_me: row.liked_by_me === 1,
+    dependencies: JSON.parse(row.dependencies) as string[],
+  })
 })
 
 // ─── POST /sync ──────────────────────────────────────────
