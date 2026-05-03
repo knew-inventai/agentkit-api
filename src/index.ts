@@ -11,7 +11,7 @@ type Bindings = {
 
 const REPO_MAP: Record<string, string> = {
   skill: 'agentkit-skills',
-  prompt: 'agentkit-prompts',
+  agent: 'agentkit-agents',
   mcp: 'agentkit-mcp',
   plugin: 'agentkit-plugins',
 }
@@ -75,8 +75,8 @@ function buildUpsertStmt(
   return db.prepare(`
     INSERT OR REPLACE INTO packages
       (id, type, name, version, description, tags, compatible,
-       author_name, author_github, license, repo_path, dependencies, synced_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+       author_name, author_github, license, repo_path, synced_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
   `).bind(
     id,
     type,
@@ -89,7 +89,6 @@ function buildUpsertStmt(
     String(author?.github ?? '') || null,
     String(manifest.license ?? '') || null,
     `https://raw.githubusercontent.com/${org}/${repo}/main/${name}`,
-    JSON.stringify(Array.isArray(agentkit?.dependencies) ? agentkit.dependencies : []),
   )
 }
 
@@ -219,7 +218,7 @@ app.get('/packages', async (c) => {
   const offset  = Math.max(0, parseInt(c.req.query('offset') ?? '0', 10))
   const limit   = Math.min(100, Math.max(1, parseInt(c.req.query('limit') ?? '20', 10)))
 
-  const validTypes = ['skill', 'prompt', 'mcp', 'plugin']
+  const validTypes = ['skill', 'agent', 'mcp', 'plugin']
   const typeFilter = validTypes.includes(rawType) ? rawType : null
 
   // Optional auth — provides liked_by_me when present
@@ -247,7 +246,7 @@ app.get('/packages', async (c) => {
     id: string; type: string; name: string; version: string; description: string
     tags: string; compatible: string; author_name: string; author_github: string | null
     license: string | null; repo_path: string; synced_at: string
-    downloads: number; likes: number; liked_by_me: number; dependencies: string
+    downloads: number; likes: number; liked_by_me: number
   }
 
   let countSql: string
@@ -267,7 +266,7 @@ app.get('/packages', async (c) => {
 
     listSql = `
       SELECT p.id, p.type, p.name, p.version, p.description, p.tags, p.compatible,
-        p.author_name, p.license, p.repo_path, p.synced_at, p.dependencies,
+        p.author_name, p.license, p.repo_path, p.synced_at,
         COALESCE(ps.downloads, 0) as downloads,
         (SELECT COUNT(*) FROM package_likes pl WHERE pl.package_id = p.id) as likes,
         ${likedByMeSql} as liked_by_me
@@ -287,7 +286,7 @@ app.get('/packages', async (c) => {
 
     listSql = `
       SELECT p.id, p.type, p.name, p.version, p.description, p.tags, p.compatible,
-        p.author_name, p.license, p.repo_path, p.synced_at, p.dependencies,
+        p.author_name, p.license, p.repo_path, p.synced_at,
         COALESCE(ps.downloads, 0) as downloads,
         (SELECT COUNT(*) FROM package_likes pl WHERE pl.package_id = p.id) as likes,
         ${likedByMeSql} as liked_by_me
@@ -322,7 +321,6 @@ app.get('/packages', async (c) => {
     downloads: row.downloads,
     likes: row.likes,
     liked_by_me: row.liked_by_me === 1,
-    dependencies: JSON.parse(row.dependencies) as string[],
   }))
 
   return c.json({ packages: pkgs, total, offset, limit })
@@ -344,7 +342,7 @@ app.get('/packages/:type/:name', async (c) => {
     id: string; type: string; name: string; version: string; description: string
     tags: string; compatible: string; author_name: string; author_github: string | null
     license: string | null; repo_path: string; synced_at: string
-    downloads: number; likes: number; liked_by_me: number; dependencies: string
+    downloads: number; likes: number; liked_by_me: number
   }
 
   const likedByMeSql = username
@@ -353,7 +351,7 @@ app.get('/packages/:type/:name', async (c) => {
 
   const row = await c.env.DB.prepare(`
     SELECT p.id, p.type, p.name, p.version, p.description, p.tags, p.compatible,
-      p.author_name, p.author_github, p.license, p.repo_path, p.synced_at, p.dependencies,
+      p.author_name, p.author_github, p.license, p.repo_path, p.synced_at,
       COALESCE(ps.downloads, 0) as downloads,
       (SELECT COUNT(*) FROM package_likes pl WHERE pl.package_id = p.id) as likes,
       ${likedByMeSql} as liked_by_me
@@ -379,7 +377,6 @@ app.get('/packages/:type/:name', async (c) => {
     downloads: row.downloads,
     likes: row.likes,
     liked_by_me: row.liked_by_me === 1,
-    dependencies: JSON.parse(row.dependencies) as string[],
   })
 })
 
