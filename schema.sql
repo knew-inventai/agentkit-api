@@ -1,7 +1,7 @@
--- 下載次數統計
+-- 瀏覽次數統計
 CREATE TABLE IF NOT EXISTS package_stats (
   package_id  TEXT PRIMARY KEY,
-  downloads   INTEGER NOT NULL DEFAULT 0,
+  views       INTEGER NOT NULL DEFAULT 0,
   updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS package_likes (
 
 -- 查詢常用的 index
 CREATE INDEX IF NOT EXISTS idx_likes_package ON package_likes(package_id);
+CREATE INDEX IF NOT EXISTS idx_likes_user ON package_likes(github_user);
 
 -- Package manifest index (synced from category repos via GitHub Actions)
 CREATE TABLE IF NOT EXISTS packages (
