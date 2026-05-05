@@ -26,7 +26,7 @@ app.use('/*', cors({
     if (origin.includes('localhost') || origin.includes('192.168.') || origin.includes('github.io')) return origin
     return null
   },
-  allowMethods: ['GET', 'POST', 'OPTIONS'],
+  allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
 }))
 
@@ -420,6 +420,28 @@ app.post('/sync/bulk', async (c) => {
   const stmts = batch.map((p) => buildUpsertStmt(c.env.DB, c.env.GITHUB_ORG, p))
   await c.env.DB.batch(stmts)
   return c.json({ ok: true, count: batch.length })
+})
+
+// ─── DELETE /packages/:type/:name ────────────────────────
+
+app.delete('/packages/:type/:name', async (c) => {
+  if (!authSync(c)) return c.json({ error: 'unauthorized' }, 401)
+
+  const packageId = `${c.req.param('type')}/${c.req.param('name')}`
+
+  const existing = await c.env.DB.prepare(
+    'SELECT 1 FROM packages WHERE id = ?'
+  ).bind(packageId).first()
+
+  if (!existing) return c.json({ error: 'not found' }, 404)
+
+  await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM packages      WHERE id = ?').bind(packageId),
+    c.env.DB.prepare('DELETE FROM package_stats WHERE package_id = ?').bind(packageId),
+    c.env.DB.prepare('DELETE FROM package_likes WHERE package_id = ?').bind(packageId),
+  ])
+
+  return c.json({ ok: true })
 })
 
 export default app
